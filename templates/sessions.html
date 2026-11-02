@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}Session History - Smart Classroom Monitor{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Monitoring Session History</h1>
+        <p class="page-subtitle">FR-08: Historical audit log of classroom monitoring sessions</p>
+    </div>
+</div>
+
+<div class="panel">
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Session ID</th>
+                    <th>Class / Section</th>
+                    <th>Subject</th>
+                    <th>Date</th>
+                    <th>Start Time</th>
+                    <th>End Time</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in sessions %}
+                <tr>
+                    <td><strong>{{ s.session_id }}</strong></td>
+                    <td>{{ s.class_name }}</td>
+                    <td>{{ s.subject }}</td>
+                    <td>{{ s.date }}</td>
+                    <td>{{ s.start_time }}</td>
+                    <td>{{ s.end_time or 'In Progress' }}</td>
+                    <td>
+                        {% if s.status == 'ACTIVE' %}
+                            <span class="badge badge-present">ACTIVE</span>
+                        {% else %}
+                            <span class="badge" style="background-color: var(--card-bg); color: var(--text-muted); border: 1px solid var(--panel-border);">COMPLETED</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{{ url_for('reports_view', session_id=s.session_id) }}" class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;">
+                            View Report
+                        </a>
+                        <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px; margin-left: 4px; border-color: var(--accent-primary); color: #38bdf8;" onclick="openReplayModal('{{ s.session_id }}')">
+                            ▶ Replay Timeline
+                        </button>
+                        {% if s.status == 'COMPLETED' %}
+                        <a href="{{ url_for('download_pdf_report', session_id=s.session_id) }}" class="btn btn-primary" style="padding: 4px 8px; font-size: 11px; margin-left: 4px;">
+                            PDF
+                        </a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="8" style="text-align: center; color: var(--text-dim); padding: 24px;">No monitoring sessions recorded yet. Start a session from the main dashboard.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Session Event Log Replay Modal -->
+<div class="modal-overlay" id="replay-modal">
+    <div class="modal-card" style="max-width: 580px;">
+        <div class="modal-header">
+            <div>
+                <h3 class="modal-title" id="replay-modal-title">Session Event Log Replay</h3>
+                <p style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Sequential chronological audit trail of detections, presence qualifications, and system actions</p>
+            </div>
+            <button class="close-btn" onclick="closeReplayModal()">&times;</button>
+        </div>
+
+        <div id="replay-timeline-box" style="height: 280px; overflow-y: auto; background: #000; border: 1px solid var(--panel-border); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 11px; line-height: 1.6; color: #94a3b8; margin-top: 12px;">
+            <div style="color: #38bdf8;">Loading session timeline events...</div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+            <button type="button" class="btn btn-secondary" onclick="closeReplayModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function openReplayModal(sessionId) {
+    document.getElementById('replay-modal-title').innerText = `Session Replay: ${sessionId}`;
+    document.getElementById('replay-modal').style.display = 'flex';
+    const box = document.getElementById('replay-timeline-box');
+    box.innerHTML = `<div style="color: #38bdf8;">Loading event logs for ${sessionId}...</div>`;
+
+    fetch(`/api/sessions/${sessionId}/timeline`)
+    .then(r => r.json())
+    .then(data => {
+        if (data.success && data.timeline && data.timeline.length > 0) {
+            box.innerHTML = data.timeline.map(log => `
+                <div style="margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 4px;">
+                    <span style="color: #38bdf8;">[${log.timestamp || 'LOG'}]</span>
+                    <strong style="color: #34d399;">${log.action}</strong> (${log.user || 'System'}):
+                    <span style="color: #cbd5e1;">${log.details}</span>
+                </div>
+            `).join('');
+        } else {
+            box.innerHTML = `<div style="color: var(--text-muted);">No timeline logs recorded for this session.</div>`;
+        }
+    })
+    .catch(err => {
+        box.innerHTML = `<div style="color: #f87171;">Error loading timeline events: ${err}</div>`;
+    });
+}
+
+function closeReplayModal() {
+    document.getElementById('replay-modal').style.display = 'none';
+}
+</script>
+{% endblock %}

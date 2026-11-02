@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Smart Classroom Monitoring System{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar">
+        <div class="brand">
+            <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <span>SMART CLASSROOM MONITOR</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 16px;">
+            <ul class="nav-links">
+                <li>
+                    <a href="{{ url_for('index') }}" class="nav-link {% if request.endpoint == 'index' %}active{% endif %}">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+                        Monitoring Dashboard
+                    </a>
+                </li>
+                <li>
+                    <a href="{{ url_for('students_view') }}" class="nav-link {% if request.endpoint == 'students_view' %}active{% endif %}">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                        Student Directory
+                    </a>
+                </li>
+                <li>
+                    <a href="{{ url_for('sessions_view') }}" class="nav-link {% if request.endpoint == 'sessions_view' %}active{% endif %}">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                        Session History
+                    </a>
+                </li>
+                <li>
+                    <a href="{{ url_for('reports_view') }}" class="nav-link {% if request.endpoint == 'reports_view' %}active{% endif %}">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        Faculty Reports
+                    </a>
+                </li>
+            </ul>
+
+            <button class="btn btn-secondary" onclick="openAuthModal()" style="font-size: 11px; padding: 6px 12px; border-color: #cbd5e1; background: #f8fafc; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                <span class="pulse-dot"></span>
+                <span id="nav-user-label">Faculty: Dr. Faculty In-Charge</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- RBAC Authentication & Role Switcher Modal -->
+    <div class="modal-overlay" id="auth-modal">
+        <div class="modal-card" style="max-width: 420px;">
+            <div class="modal-header">
+                <div>
+                    <h3 class="modal-title">System Role & Identity Login</h3>
+                    <p style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Switch active role between Faculty In-Charge and System Administrator</p>
+                </div>
+                <button class="close-btn" onclick="closeAuthModal()">&times;</button>
+            </div>
+            
+            <form onsubmit="handleAuthLogin(event)" style="margin-top: 12px;">
+                <div class="form-group">
+                    <label class="form-label">Select Role / Account *</label>
+                    <select id="auth-username" class="form-control" onchange="autoFillAuthPassword(this.value)">
+                        <option value="faculty">Faculty In-Charge (Dr. Faculty In-Charge)</option>
+                        <option value="admin">System Administrator (Admin Access)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Password *</label>
+                    <input type="password" id="auth-password" class="form-control" value="faculty123" required>
+                </div>
+
+                <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px;">
+                    <button type="button" class="btn btn-secondary" onclick="closeAuthModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Authenticate & Switch Role</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+    function openAuthModal() {
+        document.getElementById('auth-modal').style.display = 'flex';
+    }
+    function closeAuthModal() {
+        document.getElementById('auth-modal').style.display = 'none';
+    }
+    function autoFillAuthPassword(user) {
+        document.getElementById('auth-password').value = user === 'admin' ? 'admin123' : 'faculty123';
+    }
+    function handleAuthLogin(e) {
+        e.preventDefault();
+        const username = document.getElementById('auth-username').value;
+        const password = document.getElementById('auth-password').value;
+
+        fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: username, password: password })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                localStorage.setItem('user_role', data.user.role);
+                localStorage.setItem('user_name', data.user.full_name);
+                document.getElementById('nav-user-label').innerText = `${data.user.role}: ${data.user.full_name}`;
+                closeAuthModal();
+                alert(`Successfully authenticated as ${data.user.role} (${data.user.full_name})`);
+                window.location.reload();
+            } else {
+                alert(data.error || "Authentication failed.");
+            }
+        });
+    }
+
+    // Initialize user role label from localStorage
+    document.addEventListener("DOMContentLoaded", () => {
+        const role = localStorage.getItem('user_role') || 'FACULTY';
+        const name = localStorage.getItem('user_name') || 'Dr. Faculty In-Charge';
+        const el = document.getElementById('nav-user-label');
+        if (el) el.innerText = `${role}: ${name}`;
+    });
+    </script>
+    </nav>
+
+    <main class="main-wrapper">
+        {% block content %}{% endblock %}
+    </main>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

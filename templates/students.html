@@ -1,0 +1,429 @@
+{% extends "base.html" %}
+
+{% block title %}Student Registration & Biometric Directory - Smart Classroom Monitor{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Registered Students & Biometric Directory</h1>
+        <p class="page-subtitle">FR-01: Multi-sample biometric enrollment, validation, and consent management</p>
+    </div>
+    <button class="btn btn-primary" onclick="openRegisterModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+        Enroll New Student Profile
+    </button>
+</div>
+
+<div class="panel">
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Student ID</th>
+                    <th>Full Name</th>
+                    <th>Department</th>
+                    <th>Section / Class</th>
+                    <th>Biometric Enrollment</th>
+                    <th>Consent Status</th>
+                    <th>Registered Date</th>
+                    <th>Admin Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in students %}
+                <tr>
+                    <td><strong>{{ s.student_id }}</strong></td>
+                    <td>{{ s.name }}</td>
+                    <td>{{ s.department or 'CSE' }}</td>
+                    <td><span class="badge" style="background-color: var(--card-bg); color: var(--text-main); border: 1px solid var(--panel-border);">{{ s.section or 'Sec-A' }} • {{ s.class_name }}</span></td>
+                    <td>
+                        <span class="badge badge-present">Multi-Sample Templates Enrolled</span>
+                    </td>
+                    <td><span class="badge badge-present">{{ s.consent_status or 'GRANTED' }}</span></td>
+                    <td>{{ s.created_at[:10] if s.created_at else '2026-09-28' }}</td>
+                    <td>
+                        <button class="btn btn-danger" style="padding: 2px 8px; font-size: 11px;" onclick="deleteStudent('{{ s.student_id }}', '{{ s.name }}')">
+                            Delete Profile
+                        </button>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 36px;">
+                        No students registered in database.<br>
+                        Click <strong>"Enroll New Student Profile"</strong> above to capture multi-sample face biometrics and store profiles.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Multi-Sample Face Biometric Enrollment Modal -->
+<div class="modal-overlay" id="register-modal">
+    <div class="modal-card" style="max-width: 620px;">
+        <div class="modal-header">
+            <div>
+                <h3 class="modal-title">Multi-Sample Face Biometric Enrollment</h3>
+                <p style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Captures multi-sample face biometrics (3 to 50 samples across pose angles) for zero false-identity match.</p>
+            </div>
+            <button class="close-btn" onclick="closeRegisterModal()">&times;</button>
+        </div>
+        <form id="register-form" onsubmit="handleBiometricRegister(event)">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label class="form-label">Student ID (Unique Roll No.) *</label>
+                    <input type="text" id="reg-id" class="form-control" placeholder="e.g. S101" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Full Name *</label>
+                    <input type="text" id="reg-name" class="form-control" placeholder="e.g. Naga Koushik" required>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label class="form-label">Department *</label>
+                    <input type="text" id="reg-dept" class="form-control" value="Computer Science & Engineering" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Section & Class *</label>
+                    <input type="text" id="reg-sec" class="form-control" value="Sec-A (CSE III Year)" required>
+                </div>
+            </div>
+
+            <!-- Enrollment Capture Mode Selection -->
+            <div style="display: flex; gap: 12px; margin-top: 6px; margin-bottom: 8px;">
+                <button type="button" class="btn btn-secondary" id="btn-mode-manual" onclick="setEnrollmentMode('manual')" style="flex: 1; font-size: 11px; border-color: var(--accent-primary);">
+                    Manual 3-Sample Mode
+                </button>
+                <button type="button" class="btn btn-secondary" id="btn-mode-burst" onclick="setEnrollmentMode('burst')" style="flex: 1; font-size: 11px;">
+                    ⚡ Auto Burst Mode (30-50 Samples)
+                </button>
+            </div>
+
+            <!-- Multi-Sample Camera Viewport -->
+            <div class="form-group" style="margin-top: 4px;">
+                <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span id="scan-mode-title">Face Biometric Scan (3 Quality Samples)</span>
+                    <button type="button" class="btn btn-secondary" onclick="startCameraPermission()" style="padding: 2px 8px; font-size: 11px;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                        Start Camera (Request Permission)
+                    </button>
+                </label>
+
+                <div id="cam-viewport" style="background: #000; border: 1px solid var(--panel-border); border-radius: 6px; aspect-ratio: 4/3; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+                    <video id="modal-video" style="width: 100%; height: 100%; object-fit: cover; display: none;" autoplay playsinline muted></video>
+                    <canvas id="modal-canvas" style="display: none;"></canvas>
+                    <img id="modal-preview" style="max-width: 100%; max-height: 100%; object-fit: contain; display: none;">
+
+                    <div id="face-guide" style="display: none; position: absolute; width: 150px; height: 190px; border: 2px dashed rgba(52, 211, 153, 0.85); border-radius: 50%; pointer-events: none; transition: border-color 0.3s;"></div>
+
+                    <div id="pose-instruction-banner" style="display: none; position: absolute; top: 12px; background: rgba(15, 23, 42, 0.85); border: 1px solid var(--accent-primary); border-radius: 20px; padding: 4px 14px; font-size: 12px; color: #38bdf8; font-weight: 600;">
+                        Target Pose: <span id="pose-text">Look Straight Ahead</span>
+                    </div>
+
+                    <div id="cam-placeholder" style="text-align: center; color: var(--text-dim); padding: 20px;">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 8px;"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                        <div>Click <strong>Start Camera</strong> to grant browser permission<br>and scan biometric face samples.</div>
+                    </div>
+                </div>
+
+                <!-- Manual Mode Controls -->
+                <div id="manual-controls" style="display: flex; gap: 8px; margin-top: 8px;">
+                    <button type="button" id="btn-sample-1" class="btn btn-secondary" onclick="captureSample(1)" style="flex: 1; font-size: 11px; display: none;">
+                        Sample 1: Frontal
+                    </button>
+                    <button type="button" id="btn-sample-2" class="btn btn-secondary" onclick="captureSample(2)" style="flex: 1; font-size: 11px; display: none;">
+                        Sample 2: Angle Left
+                    </button>
+                    <button type="button" id="btn-sample-3" class="btn btn-secondary" onclick="captureSample(3)" style="flex: 1; font-size: 11px; display: none;">
+                        Sample 3: Angle Right
+                    </button>
+                </div>
+
+                <!-- Burst Mode Controls & Progress Bar -->
+                <div id="burst-controls" style="display: none; margin-top: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-size: 11px; color: var(--text-muted);">
+                        <span>Auto Burst Frame Collector (30-50 Samples)</span>
+                        <strong id="burst-count-label" style="color: var(--accent-primary);">0 / 40 frames</strong>
+                    </div>
+                    <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; border: 1px solid var(--panel-border);">
+                        <div id="burst-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #38bdf8, #34d399); transition: width 0.15s linear;"></div>
+                    </div>
+                    <button type="button" id="btn-start-burst" class="btn btn-primary" onclick="startBurstCapture()" style="width: 100%; margin-top: 8px; justify-content: center; font-size: 12px; display: none;">
+                        ⚡ Start Automated 40-Sample Burst Scan
+                    </button>
+                </div>
+
+                <div id="biometric-samples-status" style="font-size: 11px; color: var(--status-present-text); margin-top: 6px; display: none;"></div>
+            </div>
+
+            <div class="form-group" style="margin-top: 12px; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 4px; border: 1px solid var(--panel-border);">
+                <label style="font-size: 12px; display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-muted);">
+                    <input type="checkbox" id="reg-consent" checked required>
+                    <span>Student Biometric Data Consent Granted (Required for Automated Biometric Attendance)</span>
+                </label>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 16px;">
+                <button type="button" class="btn btn-secondary" onclick="closeRegisterModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="btn-save-enrollment">Save Biometric Profile</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let modalStream = null;
+let capturedSamples = [];
+let enrollmentMode = 'manual'; // 'manual' or 'burst'
+let burstInterval = null;
+
+function setEnrollmentMode(mode) {
+    enrollmentMode = mode;
+    capturedSamples = [];
+    document.getElementById('biometric-samples-status').style.display = 'none';
+
+    const btnManual = document.getElementById('btn-mode-manual');
+    const btnBurst = document.getElementById('btn-mode-burst');
+    const manualCtrl = document.getElementById('manual-controls');
+    const burstCtrl = document.getElementById('burst-controls');
+    const title = document.getElementById('scan-mode-title');
+    const poseBanner = document.getElementById('pose-instruction-banner');
+
+    if (mode === 'burst') {
+        btnBurst.style.borderColor = 'var(--accent-primary)';
+        btnBurst.style.backgroundColor = 'rgba(56, 189, 248, 0.15)';
+        btnManual.style.borderColor = 'var(--panel-border)';
+        btnManual.style.backgroundColor = 'transparent';
+
+        manualCtrl.style.display = 'none';
+        burstCtrl.style.display = 'block';
+        title.innerText = 'Face Biometric Scan (30-50 Fast Samples)';
+        if (modalStream) {
+            document.getElementById('btn-start-burst').style.display = 'inline-flex';
+            poseBanner.style.display = 'block';
+        }
+    } else {
+        btnManual.style.borderColor = 'var(--accent-primary)';
+        btnManual.style.backgroundColor = 'rgba(56, 189, 248, 0.15)';
+        btnBurst.style.borderColor = 'var(--panel-border)';
+        btnBurst.style.backgroundColor = 'transparent';
+
+        burstCtrl.style.display = 'none';
+        manualCtrl.style.display = 'flex';
+        title.innerText = 'Face Biometric Scan (3 Quality Samples)';
+        poseBanner.style.display = 'none';
+    }
+}
+
+function openRegisterModal() {
+    capturedSamples = [];
+    document.getElementById('register-modal').style.display = 'flex';
+    setEnrollmentMode('manual');
+}
+
+function closeRegisterModal() {
+    stopModalCamera();
+    if (burstInterval) clearInterval(burstInterval);
+    document.getElementById('register-modal').style.display = 'none';
+}
+
+function stopModalCamera() {
+    if (burstInterval) clearInterval(burstInterval);
+    if (modalStream) {
+        modalStream.getTracks().forEach(t => t.stop());
+        modalStream = null;
+    }
+}
+
+function startCameraPermission() {
+    stopModalCamera();
+    navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
+    .then(stream => {
+        modalStream = stream;
+        const video = document.getElementById('modal-video');
+        video.srcObject = stream;
+        video.style.display = 'block';
+        document.getElementById('face-guide').style.display = 'block';
+        document.getElementById('cam-placeholder').style.display = 'none';
+        document.getElementById('modal-preview').style.display = 'none';
+        
+        if (enrollmentMode === 'burst') {
+            document.getElementById('btn-start-burst').style.display = 'inline-flex';
+            document.getElementById('pose-instruction-banner').style.display = 'block';
+        } else {
+            document.getElementById('btn-sample-1').style.display = 'inline-flex';
+            document.getElementById('btn-sample-2').style.display = 'inline-flex';
+            document.getElementById('btn-sample-3').style.display = 'inline-flex';
+        }
+    })
+    .catch(err => {
+        alert("Camera Permission Error: " + err.message + "\nPlease check browser camera permissions in your address bar.");
+    });
+}
+
+function captureSample(sampleIndex) {
+    const video = document.getElementById('modal-video');
+    const canvas = document.getElementById('modal-canvas');
+    if (!video.srcObject) return;
+
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const imgB64 = canvas.toDataURL('image/jpeg', 0.9);
+    capturedSamples.push(imgB64);
+
+    const btn = document.getElementById(`btn-sample-${sampleIndex}`);
+    btn.style.backgroundColor = 'var(--status-present-bg)';
+    btn.style.color = 'var(--status-present-text)';
+    btn.innerText = `✓ Sample ${sampleIndex} Captured`;
+
+    const statusDiv = document.getElementById('biometric-samples-status');
+    statusDiv.innerHTML = `✓ ${capturedSamples.length} / 3 Quality-Validated Samples Captured`;
+    statusDiv.style.display = 'block';
+}
+
+function startBurstCapture() {
+    const video = document.getElementById('modal-video');
+    const canvas = document.getElementById('modal-canvas');
+    const btnBurst = document.getElementById('btn-start-burst');
+    const poseText = document.getElementById('pose-text');
+    const progressBar = document.getElementById('burst-progress-bar');
+    const countLabel = document.getElementById('burst-count-label');
+    const faceGuide = document.getElementById('face-guide');
+
+    if (!video.srcObject) return;
+
+    capturedSamples = [];
+    btnBurst.disabled = true;
+    btnBurst.innerText = "Scanning Biometric Cluster...";
+    
+    const totalTarget = 40;
+    let count = 0;
+
+    const poses = [
+        { limit: 10, text: "Look Straight Ahead (Frontal)" },
+        { limit: 20, text: "Turn Head Slightly Left" },
+        { limit: 30, text: "Turn Head Slightly Right" },
+        { limit: 40, text: "Nod Head Slightly Up / Down" }
+    ];
+
+    if (burstInterval) clearInterval(burstInterval);
+
+    burstInterval = setInterval(() => {
+        if (count >= totalTarget) {
+            clearInterval(burstInterval);
+            burstInterval = null;
+            btnBurst.disabled = false;
+            btnBurst.innerText = "✓ Burst Scan Complete (40 Samples)";
+            btnBurst.style.backgroundColor = "var(--status-present-bg)";
+            btnBurst.style.color = "var(--status-present-text)";
+            poseText.innerText = "✓ Biometric Multi-Angle Sampling Complete!";
+            faceGuide.style.borderColor = "#34d399";
+
+            const statusDiv = document.getElementById('biometric-samples-status');
+            statusDiv.innerHTML = `✓ ${capturedSamples.length} Multi-Angle Biometric Templates Collected & Ready to Save.`;
+            statusDiv.style.display = 'block';
+            return;
+        }
+
+        // Set pose prompt text
+        for (let p of poses) {
+            if (count < p.limit) {
+                poseText.innerText = p.text;
+                break;
+            }
+        }
+
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const imgB64 = canvas.toDataURL('image/jpeg', 0.85);
+        capturedSamples.push(imgB64);
+        count++;
+
+        const pct = Math.round((count / totalTarget) * 100);
+        progressBar.style.width = `${pct}%`;
+        countLabel.innerText = `${count} / ${totalTarget} frames`;
+    }, 110);
+}
+
+function handleBiometricRegister(e) {
+    e.preventDefault();
+    const student_id = document.getElementById('reg-id').value;
+    const name = document.getElementById('reg-name').value;
+    const department = document.getElementById('reg-dept').value;
+    const section = document.getElementById('reg-sec').value;
+
+    if (capturedSamples.length === 0) {
+        alert("Please capture face biometric samples before saving profile.");
+        return;
+    }
+
+    const btnSave = document.getElementById('btn-save-enrollment');
+    btnSave.disabled = true;
+    btnSave.innerText = "Validating & Saving Biometrics...";
+
+    fetch('/api/students/register_biometric', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            student_id: student_id,
+            name: name,
+            department: department,
+            section: section,
+            class_name: section,
+            face_samples: capturedSamples
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        btnSave.disabled = false;
+        btnSave.innerText = "Save Biometric Profile";
+        if(data.success) {
+            alert(`Student ${name} (${student_id}) enrolled successfully with ${data.samples_enrolled} biometric templates!`);
+            window.location.reload();
+        } else {
+            alert(data.error || "Biometric registration failed.");
+        }
+    })
+    .catch(err => {
+        btnSave.disabled = false;
+        btnSave.innerText = "Save Biometric Profile";
+        alert("Registration network error: " + err);
+    });
+}
+
+function deleteStudent(studentId, name) {
+    if (!confirm(`Are you sure you want to delete student profile for ${name} (${studentId}) and remove all associated biometric encodings?`)) {
+        return;
+    }
+
+    fetch('/api/students/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_id: studentId })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            alert(`Student ${name} (${studentId}) deleted successfully.`);
+            window.location.reload();
+        } else {
+            alert(data.error || "Failed to delete student.");
+        }
+    })
+    .catch(err => alert("Error deleting student: " + err));
+}
+</script>
+{% endblock %}
+

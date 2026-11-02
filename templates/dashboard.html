@@ -1,0 +1,660 @@
+{% extends "base.html" %}
+
+{% block title %}Real-Time Dashboard - Smart Classroom Monitor{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Real-Time Classroom Telemetry</h1>
+        <p class="page-subtitle">AI-assisted multi-person detection, automatic attendance, and individual attention tracking</p>
+    </div>
+    <div id="session-controls">
+        {% if active_session.session_id %}
+            <button id="btn-stop-session" class="btn btn-danger" onclick="stopSession()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                End Period Session & Export Overview Report
+            </button>
+        {% else %}
+            <button class="btn btn-primary" onclick="openStartModal()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Start Monitoring Session
+            </button>
+        {% endif %}
+    </div>
+</div>
+
+{% if active_session.session_id %}
+<!-- Active Session Details Banner -->
+<div class="panel" style="margin-bottom: 20px; background: rgba(16, 185, 129, 0.1); border-color: rgba(52, 211, 153, 0.3); padding: 12px 16px;">
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <div class="pulse-dot"></div>
+            <div>
+                <strong style="color: var(--status-present-text); font-size: 14px;">PERIOD MONITORING ACTIVE: {{ active_session.subject }}</strong>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+                    <strong>Slot:</strong> {{ active_session.slot_number }} &nbsp;|&nbsp; 
+                    <strong>Schedule:</strong> {{ active_session.schedule_start }} - {{ active_session.schedule_end }} &nbsp;|&nbsp; 
+                    <strong>Class:</strong> {{ active_session.class_name }} &nbsp;|&nbsp; 
+                    <strong>ID:</strong> {{ active_session.session_id }}
+                </div>
+            </div>
+        </div>
+        <span class="badge badge-present" style="font-size: 12px; padding: 4px 10px;">Attendance Active</span>
+    </div>
+</div>
+{% endif %}
+
+<!-- Overview Metrics Cards (FR-06) -->
+<div class="metrics-grid">
+    <div class="metric-card">
+        <div class="metric-label">
+            Active Subject / Period
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </div>
+        <div class="metric-val" id="val-session-id" style="font-size: 16px; margin-top: 10px; font-weight: 700;">
+            {% if active_session.session_id %}
+                {{ active_session.subject }}
+            {% else %}
+                IDLE (No Active Session)
+            {% endif %}
+        </div>
+        <div class="metric-subtext" id="val-session-class">
+            {% if active_session.session_id %}
+                {{ active_session.slot_number }} ({{ active_session.schedule_start }} - {{ active_session.schedule_end }})
+            {% else %}
+                Click 'Start Monitoring Session' to enter details
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="metric-card">
+        <div class="metric-label">
+            Registered Group
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+        </div>
+        <div class="metric-val" id="val-total-reg">{{ registered_students|length }}</div>
+        <div class="metric-subtext">Students in Section</div>
+    </div>
+
+    <div class="metric-card">
+        <div class="metric-label">
+            Present Count
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        </div>
+        <div class="metric-val" id="val-present" style="color: var(--status-present-text);">0</div>
+        <div class="metric-subtext" id="val-absent">Absent: 0</div>
+    </div>
+
+    <div class="metric-card">
+        <div class="metric-label">
+            Average Attention
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+        </div>
+        <div class="metric-val" id="val-avg-attention">0.0%</div>
+        <div class="metric-subtext">Classroom Focus Score</div>
+    </div>
+</div>
+
+<!-- Main 2-Column Dashboard Layout (FR-02 & FR-06) -->
+<div class="dashboard-grid">
+    <!-- Camera Feed Column -->
+    <div>
+        <div class="video-container" id="video-container-box">
+            <div class="video-overlay-badge" style="justify-content: space-between; right: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <div class="pulse-dot {% if not active_session.session_id %}inactive{% endif %}" id="status-pulse"></div>
+                    <span id="camera-status-text">
+                        {% if active_session.session_id %}
+                            PERIOD MONITORING ACTIVE
+                        {% else %}
+                            CAMERA STANDBY | SESSION IDLE
+                        {% endif %}
+                    </span>
+                </div>
+                
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <label style="font-size: 11px; color: var(--text-muted);">SOURCE:</label>
+                    <select id="camera-mode-select" onchange="changeCameraSource(this.value)" style="padding: 4px 8px; font-size: 11px; background: #ffffff; border: 1px solid #cbd5e1; color: #0f172a; border-radius: 4px; outline: none; cursor: pointer;">
+                        <option value="browser">Browser Live Camera (Ask Permission)</option>
+                        <option value="simulation" selected>Classroom Prototype Stream (3-5 Students)</option>
+                    </select>
+                </div>
+            </div>
+            
+            <img src="{{ url_for('video_feed') }}" alt="Real-Time Classroom Camera Feed" class="video-stream" id="video-canvas-img">
+
+            <video id="client-webcam-video" autoplay playsinline muted style="display: none; width: 100%; height: 100%; object-fit: cover;"></video>
+            <canvas id="client-webcam-canvas" style="display: none;"></canvas>
+            <img id="processed-client-img" class="video-stream" style="display: none;">
+        </div>
+
+        <div id="permission-btn-bar" style="display: none; margin-top: 12px;">
+            <button class="btn btn-primary" onclick="requestBrowserCameraPermission()" style="width: 100%; justify-content: center;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                Grant Browser Camera Permission
+            </button>
+        </div>
+    </div>
+
+    <!-- Live Telemetry Side Table (FR-06) -->
+    <div class="panel">
+        <div class="panel-header">
+            <h2 class="panel-title">Detected Student Telemetry</h2>
+            <span id="detected-count-tag" class="badge badge-present">Active Feed</span>
+        </div>
+
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Student Name</th>
+                        <th>Dept / Sec</th>
+                        <th>Attendance</th>
+                        <th>Attention</th>
+                        <th>Score</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="student-table-body">
+                    {% for s in registered_students %}
+                    <tr id="row-{{ s.student_id }}" style="cursor: pointer;" onclick="openStudentDetailModal('{{ s.student_id }}')">
+                        <td><strong>{{ s.student_id }}</strong></td>
+                        <td>{{ s.name }}</td>
+                        <td><small>{{ s.department or 'CSE' }} • {{ s.section or 'Sec-A' }}</small></td>
+                        <td><span class="badge badge-absent">Absent</span></td>
+                        <td><span class="badge-inattentive">N/A</span></td>
+                        <td>--</td>
+                        <td>
+                            <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 10px;" onclick="event.stopPropagation(); openStudentDetailModal('{{ s.student_id }}')">
+                                Details
+                            </button>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 24px;">
+                            No registered students found.<br>
+                            <a href="{{ url_for('students_view') }}" style="color: var(--accent-primary); text-decoration: underline; font-weight: 600;">Register New Student Profile</a> to enable face identification.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Digital Classroom Real-Time Seating Visualizer & Live Event Log Row -->
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
+    <!-- Digital Classroom 2D Seating Visualizer -->
+    <div class="panel">
+        <div class="panel-header">
+            <div>
+                <h2 class="panel-title" style="display: flex; align-items: center; gap: 8px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+                    Digital Classroom Real-Time Seating Visualizer
+                </h2>
+                <p style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                    Real-time seating map: 🟢 Present | 🔴 Absent | 🟡 Detecting | 🔘 Empty Desk
+                </p>
+            </div>
+            <span class="badge badge-present">Classroom 302</span>
+        </div>
+
+        <div id="seating-grid-container" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 8px 0;">
+            {% for s in registered_students %}
+            <div class="seat-card" id="seat-{{ s.student_id }}" onclick="openStudentDetailModal('{{ s.student_id }}')" style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--panel-border); border-radius: 8px; padding: 10px; text-align: center; cursor: pointer; transition: all 0.2s;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <span style="font-size: 10px; color: var(--text-muted);">Seat #{{ loop.index }}</span>
+                    <span id="seat-dot-{{ s.student_id }}" style="width: 10px; height: 10px; border-radius: 50%; background: #f87171; display: inline-block;"></span>
+                </div>
+                <strong style="font-size: 12px; display: block; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ s.name }}</strong>
+                <span style="font-size: 10px; color: var(--text-muted);">{{ s.student_id }}</span>
+            </div>
+            {% else %}
+            <div style="grid-column: span 4; text-align: center; color: var(--text-muted); padding: 20px; font-size: 12px;">
+                No registered students assigned to classroom desks.<br>
+                <a href="{{ url_for('students_view') }}" style="color: var(--accent-primary); text-decoration: underline;">Enroll Students</a> to populate classroom seating visualizer.
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Live Event Log & Timeline Stream -->
+    <div class="panel">
+        <div class="panel-header">
+            <div>
+                <h2 class="panel-title" style="display: flex; align-items: center; gap: 8px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    Live System Event Timeline Stream
+                </h2>
+                <p style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Real-time audit events, detections, and security state changes</p>
+            </div>
+            <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 8px;" onclick="clearEventLogUI()">Clear View</button>
+        </div>
+
+        <div id="live-event-stream" style="height: 185px; overflow-y: auto; background: #000; border: 1px solid var(--panel-border); border-radius: 6px; padding: 10px; font-family: monospace; font-size: 11px; line-height: 1.6; color: #94a3b8;">
+            <div style="color: #38bdf8;">[SYSTEM_INIT] Classroom Intelligence Platform Telemetry Active...</div>
+            <div style="color: #34d399;">[CAMERA_HEALTH] OpenCV YuNet AI Face Detector Initialized.</div>
+        </div>
+    </div>
+</div>
+
+<!-- Unregistered / Unknown Faces Monitoring Audit Panel -->
+<div class="panel" style="margin-top: 20px;">
+    <div class="panel-header">
+        <div>
+            <h2 class="panel-title" style="display: flex; align-items: center; gap: 8px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                Zero False-Identity Security Log (Unregistered Visitor Detection)
+            </h2>
+            <p style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                Strict Biometric Rule (FR-03): Unregistered visitors are strictly assigned temporary Track IDs and labeled 'UNKNOWN'. They are NEVER matched to enrolled students.
+            </p>
+        </div>
+        <span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.3);">
+            Strict Identity Isolation Active
+        </span>
+    </div>
+
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Track ID</th>
+                    <th>Detector Identification</th>
+                    <th>Biometric Status</th>
+                    <th>Biometric Distance Score</th>
+                    <th>Security Action</th>
+                </tr>
+            </thead>
+            <tbody id="unknown-tracks-body">
+                <tr>
+                    <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 18px; font-size: 12px;">
+                        ✓ No unregistered visitors or ambiguous tracks currently detected. All active tracks correspond to enrolled classroom students.
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Enter Session & Period Details Modal -->
+<div class="modal-overlay" id="start-modal">
+    <div class="modal-card" style="max-width: 520px;">
+        <div class="modal-header">
+            <div>
+                <h3 class="modal-title">Enter Session & Period Details</h3>
+                <p style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Faculty must specify the class period details before monitoring starts.</p>
+            </div>
+            <button class="close-btn" onclick="closeStartModal()">&times;</button>
+        </div>
+        <form id="start-session-form" onsubmit="handleStartSession(event)">
+            <div class="form-group">
+                <label class="form-label">Subject / Period Name *</label>
+                <input type="text" id="input-subject" class="form-control" placeholder="e.g. Artificial Intelligence & Neural Networks" required>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label class="form-label">Period Slot Number *</label>
+                    <input type="text" id="input-slot" class="form-control" placeholder="e.g. Slot 1 (Period 1)" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Class & Section *</label>
+                    <input type="text" id="input-class" class="form-control" placeholder="e.g. CSE III Year (Sec A)" required>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label class="form-label">Scheduled Start Time *</label>
+                    <input type="text" id="input-sched-start" class="form-control" placeholder="09:30 AM" value="09:30 AM" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Scheduled End Time *</label>
+                    <input type="text" id="input-sched-end" class="form-control" placeholder="10:30 AM" value="10:30 AM" required>
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px;">
+                <button type="button" class="btn btn-secondary" onclick="closeStartModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Session & Start Monitoring</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Interactive Student Biometric & Telemetry Detail Modal -->
+<div class="modal-overlay" id="student-detail-modal">
+    <div class="modal-card" style="max-width: 540px;">
+        <div class="modal-header">
+            <div>
+                <h3 class="modal-title" id="modal-student-title">Student Profile Details</h3>
+                <p style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Real-time biometric recognition & attendance telemetry status</p>
+            </div>
+            <button class="close-btn" onclick="closeStudentDetailModal()">&times;</button>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 120px 1fr; gap: 16px; align-items: start; margin-top: 10px;">
+            <div style="width: 120px; height: 140px; background: #000; border: 1px solid var(--panel-border); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative;">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--text-dim);"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <div style="position: absolute; bottom: 0; left: 0; right: 0; background: rgba(15, 23, 42, 0.9); font-size: 10px; text-align: center; padding: 2px 0; color: #38bdf8;" id="modal-student-id">
+                    S101
+                </div>
+            </div>
+
+            <div style="font-size: 13px; line-height: 1.6;">
+                <div style="font-size: 16px; font-weight: 700; color: var(--text-main);" id="modal-student-name">Student Name</div>
+                <div style="color: var(--text-muted); font-size: 12px;" id="modal-student-dept-sec">CSE • Sec-A</div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 6px; border: 1px solid var(--panel-border);">
+                    <div>
+                        <span style="font-size: 11px; color: var(--text-muted); display: block;">Attendance Status</span>
+                        <strong id="modal-student-att-status" style="color: #34d399;">Present</strong>
+                    </div>
+                    <div>
+                        <span style="font-size: 11px; color: var(--text-muted); display: block;">In-Slot Presence</span>
+                        <strong id="modal-student-presence-duration">12.5 / 15.0 mins</strong>
+                    </div>
+                    <div>
+                        <span style="font-size: 11px; color: var(--text-muted); display: block;">First Sighted</span>
+                        <strong id="modal-student-first-seen" style="font-size: 11px;">09:32:15 AM</strong>
+                    </div>
+                    <div>
+                        <span style="font-size: 11px; color: var(--text-muted); display: block;">Qualification Result</span>
+                        <strong id="modal-student-qualification" style="font-size: 11px; color: #38bdf8;">QUALIFIED</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-top: 16px; background: rgba(15, 23, 42, 0.7); border: 1px solid var(--panel-border); border-radius: 6px; padding: 12px;">
+            <div style="font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">Technical Observable Facial Cues</div>
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+                <span>Current Orientation:</span>
+                <span class="badge badge-present" id="modal-student-cue">Frontal Orient (Attentive)</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; margin-top: 6px;">
+                <span>Focus Score Estimate:</span>
+                <strong id="modal-student-score" style="color: var(--accent-primary);">92%</strong>
+            </div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+            <button type="button" class="btn btn-secondary" onclick="closeStudentDetailModal()">Close</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentMode = 'simulation';
+let clientMediaStream = null;
+let clientProcessingInterval = null;
+let latestStudentsData = [];
+
+function openStartModal() {
+    document.getElementById('start-modal').style.display = 'flex';
+}
+function closeStartModal() {
+    document.getElementById('start-modal').style.display = 'none';
+}
+
+function openStudentDetailModal(studentId) {
+    const student = latestStudentsData.find(s => s.student_id === studentId);
+    if (!student) return;
+
+    document.getElementById('modal-student-title').innerText = `${student.name} - Biometric Profile`;
+    document.getElementById('modal-student-name').innerText = student.name;
+    document.getElementById('modal-student-id').innerText = student.student_id;
+    document.getElementById('modal-student-dept-sec').innerText = `${student.department || 'CSE'} • ${student.section || 'Sec-A'}`;
+    document.getElementById('modal-student-att-status').innerText = student.status;
+    document.getElementById('modal-student-att-status').style.color = student.status === 'Present' ? '#34d399' : '#f87171';
+    
+    document.getElementById('modal-student-presence-duration').innerText = `${student.verified_mins || 0} mins`;
+    document.getElementById('modal-student-first-seen').innerText = student.first_seen || 'Not Sighted';
+    document.getElementById('modal-student-qualification').innerText = student.qualification_result || 'PENDING';
+    
+    document.getElementById('modal-student-cue').innerText = student.cue_label || 'Frontal Orient (Attentive)';
+    document.getElementById('modal-student-score').innerText = student.status === 'Present' ? `${student.attention_score || 88}%` : '--';
+
+    document.getElementById('student-detail-modal').style.display = 'flex';
+}
+
+function closeStudentDetailModal() {
+    document.getElementById('student-detail-modal').style.display = 'none';
+}
+
+function handleStartSession(e) {
+    e.preventDefault();
+    const className = document.getElementById('input-class').value;
+    const subject = document.getElementById('input-subject').value;
+    const slotNumber = document.getElementById('input-slot').value;
+    const scheduleStart = document.getElementById('input-sched-start').value;
+    const scheduleEnd = document.getElementById('input-sched-end').value;
+
+    fetch('/api/sessions/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            class_name: className,
+            subject: subject,
+            slot_number: slotNumber,
+            schedule_start: scheduleStart,
+            schedule_end: scheduleEnd
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if(data.success) {
+            window.location.reload();
+        }
+    });
+}
+
+function stopSession() {
+    if(!confirm("Are you sure you want to end this period monitoring session and generate the faculty overview report?")) return;
+
+    fetch('/api/sessions/stop', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+        if(data.success) {
+            window.location.href = `/reports?session_id=${data.completed_session_id}`;
+        }
+    });
+}
+
+function changeCameraSource(mode) {
+    currentMode = mode;
+    const simImg = document.getElementById('video-canvas-img');
+    const procImg = document.getElementById('processed-client-img');
+    const btnBar = document.getElementById('permission-btn-bar');
+
+    if (mode === 'browser') {
+        simImg.style.display = 'none';
+        btnBar.style.display = 'block';
+        requestBrowserCameraPermission();
+    } else {
+        stopClientCamera();
+        procImg.style.display = 'none';
+        btnBar.style.display = 'none';
+        simImg.style.display = 'block';
+        simImg.src = '/video_feed?' + new Date().getTime();
+    }
+
+    fetch('/api/camera/mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: mode })
+    });
+}
+
+function requestBrowserCameraPermission() {
+    navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } })
+    .then(stream => {
+        clientMediaStream = stream;
+        const video = document.getElementById('client-webcam-video');
+        video.srcObject = stream;
+        document.getElementById('permission-btn-bar').style.display = 'none';
+        
+        startClientFrameProcessing();
+    })
+    .catch(err => {
+        alert("Browser Camera Access Denied or Error: " + err.message + "\nPlease click 'Allow' when browser asks for camera permission.");
+    });
+}
+
+function stopClientCamera() {
+    if (clientProcessingInterval) {
+        clearInterval(clientProcessingInterval);
+        clientProcessingInterval = null;
+    }
+    if (clientMediaStream) {
+        clientMediaStream.getTracks().forEach(t => t.stop());
+        clientMediaStream = null;
+    }
+}
+
+function startClientFrameProcessing() {
+    const video = document.getElementById('client-webcam-video');
+    const canvas = document.getElementById('client-webcam-canvas');
+    const procImg = document.getElementById('processed-client-img');
+    const ctx = canvas.getContext('2d');
+
+    procImg.style.display = 'block';
+
+    clientProcessingInterval = setInterval(() => {
+        if (!clientMediaStream || video.paused || video.ended) return;
+
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const frameB64 = canvas.toDataURL('image/jpeg', 0.85);
+
+        fetch('/api/process_client_frame', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ frame_b64: frameB64 })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success && data.annotated_b64) {
+                procImg.src = data.annotated_b64;
+            }
+        })
+        .catch(err => console.error("Frame processing error:", err));
+    }, 120);
+}
+
+function updateTelemetry() {
+    fetch('/api/live_status')
+    .then(r => r.json())
+    .then(data => {
+        document.getElementById('val-present').innerText = data.present_count;
+        document.getElementById('val-absent').innerText = `Absent: ${data.absent_count}`;
+        document.getElementById('val-avg-attention').innerText = `${data.avg_attention.toFixed(1)}%`;
+        document.getElementById('val-total-reg').innerText = data.total_registered;
+
+        if (data.active_session) {
+            document.getElementById('val-session-id').innerText = data.active_session.subject;
+            document.getElementById('val-session-class').innerText = `${data.active_session.slot_number} (${data.active_session.schedule_start} - ${data.active_session.schedule_end})`;
+        } else {
+            document.getElementById('val-session-id').innerText = "IDLE (No Active Class)";
+            document.getElementById('val-session-class').innerText = "Click 'Start Monitoring Session' to enter details";
+        }
+
+        latestStudentsData = data.students || [];
+
+        // Update Seating Visualizer Dots
+        latestStudentsData.forEach(s => {
+            const dot = document.getElementById(`seat-dot-${s.student_id}`);
+            if (dot) {
+                if (s.status === 'Present') {
+                    dot.style.backgroundColor = '#34d399';
+                } else if (s.status === 'Presence Accumulating') {
+                    dot.style.backgroundColor = '#fbbf24';
+                } else {
+                    dot.style.backgroundColor = '#f87171';
+                }
+            }
+        });
+
+        const tbody = document.getElementById('student-table-body');
+        if (latestStudentsData.length > 0) {
+            tbody.innerHTML = latestStudentsData.map(s => {
+                let attBadge = `<span class="badge badge-absent">Absent</span>`;
+                if (s.status === 'Present') {
+                    attBadge = `<span class="badge badge-present">Present (${s.verified_mins || 0}m)</span>`;
+                } else if (s.status === 'Presence Accumulating') {
+                    attBadge = `<span class="badge" style="background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3);">Verifying (${s.verified_mins || 0}m)</span>`;
+                }
+                
+                const attentionClass = s.attention_state === 'Attentive' ? 'badge-attentive' : 'badge-inattentive';
+                const scoreDisplay = s.status === 'Present' ? `${s.attention_score.toFixed(0)}%` : '--';
+                const deptSec = `<small>${s.department || 'CSE'} • ${s.section || 'Sec-A'}</small>`;
+
+                return `
+                    <tr style="cursor: pointer;" onclick="openStudentDetailModal('${s.student_id}')">
+                        <td><strong>${s.student_id}</strong></td>
+                        <td>${s.name}</td>
+                        <td>${deptSec}</td>
+                        <td>${attBadge}</td>
+                        <td><span class="${attentionClass}">${s.attention_state}</span></td>
+                        <td><strong>${scoreDisplay}</strong></td>
+                        <td>
+                            <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 10px;" onclick="event.stopPropagation(); openStudentDetailModal('${s.student_id}')">
+                                Details
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        } else {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 24px;">
+                        No registered students found.<br>
+                        <a href="/students" style="color: var(--accent-primary); text-decoration: underline; font-weight: 600;">Register New Student Profile</a> to enable face identification.
+                    </td>
+                </tr>
+            `;
+        }
+
+        // Render Unknown Tracks Audit Table
+        const unknownBody = document.getElementById('unknown-tracks-body');
+        if (data.unknown_tracks && data.unknown_tracks.length > 0) {
+            unknownBody.innerHTML = data.unknown_tracks.map(u => `
+                <tr>
+                    <td><strong>Track #${u.track_id}</strong></td>
+                    <td><span class="badge badge-inattentive">UNKNOWN VISITOR</span></td>
+                    <td><span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171;">${u.match_status}</span></td>
+                    <td>${(u.confidence * 100).toFixed(1)}% (Below 75.0% Threshold)</td>
+                    <td><span class="badge badge-present" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8;">ISOLATED (NO ASSIGNMENT)</span></td>
+                </tr>
+            `).join('');
+        } else {
+            unknownBody.innerHTML = `
+                <tr>
+                    <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 18px; font-size: 12px;">
+                        ✓ No unregistered visitors or ambiguous tracks currently detected. All active tracks correspond to enrolled classroom students.
+                    </td>
+                </tr>
+            `;
+        }
+    })
+    .catch(err => console.error("Telemetry fetch error:", err));
+}
+
+function clearEventLogUI() {
+    const el = document.getElementById('live-event-stream');
+    if (el) el.innerHTML = `<div style="color: #38bdf8;">[TIMELINE_RESET] Log stream cleared by user.</div>`;
+}
+
+setInterval(updateTelemetry, 1500);
+updateTelemetry();
+</script>
+{% endblock %}
