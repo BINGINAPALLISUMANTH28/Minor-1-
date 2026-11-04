@@ -33,8 +33,8 @@
                 <strong style="color: var(--status-present-text); font-size: 14px;">PERIOD MONITORING ACTIVE: {{ active_session.subject }}</strong>
                 <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
                     <strong>Slot:</strong> {{ active_session.slot_number }} &nbsp;|&nbsp; 
-                    <strong>Schedule:</strong> {{ active_session.schedule_start }} - {{ active_session.schedule_end }} &nbsp;|&nbsp; 
-                    <strong>Class:</strong> {{ active_session.class_name }} &nbsp;|&nbsp; 
+                    <strong>Schedule:</strong> {{ active_session.scheduled_start }} - {{ active_session.scheduled_end }} &nbsp;|&nbsp;
+                    <strong>Class:</strong> {{ active_session.class_name }} / {{ active_session.section }} &nbsp;|&nbsp;
                     <strong>ID:</strong> {{ active_session.session_id }}
                 </div>
             </div>
@@ -60,7 +60,7 @@
         </div>
         <div class="metric-subtext" id="val-session-class">
             {% if active_session.session_id %}
-                {{ active_session.slot_number }} ({{ active_session.schedule_start }} - {{ active_session.schedule_end }})
+                {{ active_session.slot_number }} ({{ active_session.scheduled_start }} - {{ active_session.scheduled_end }})
             {% else %}
                 Click 'Start Monitoring Session' to enter details
             {% endif %}
@@ -115,8 +115,8 @@
                 <div style="display: flex; align-items: center; gap: 6px;">
                     <label style="font-size: 11px; color: var(--text-muted);">SOURCE:</label>
                     <select id="camera-mode-select" onchange="changeCameraSource(this.value)" style="padding: 4px 8px; font-size: 11px; background: #ffffff; border: 1px solid #cbd5e1; color: #0f172a; border-radius: 4px; outline: none; cursor: pointer;">
-                        <option value="browser">Browser Live Camera (Ask Permission)</option>
-                        <option value="simulation" selected>Classroom Prototype Stream (3-5 Students)</option>
+                        <option value="browser" {% if camera_mode == 'browser' %}selected{% endif %}>Browser Live Camera (Ask Permission)</option>
+                        <option value="simulation" {% if camera_mode == 'simulation' %}selected{% endif %}>Classroom Prototype Stream (3-5 Students)</option>
                     </select>
                 </div>
             </div>
@@ -196,7 +196,7 @@
                     Digital Classroom Real-Time Seating Visualizer
                 </h2>
                 <p style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
-                    Real-time seating map: 🟢 Present | 🔴 Absent | 🟡 Detecting | 🔘 Empty Desk
+                    Real-time seating map: 🟢 Present | 🟡 Verifying | ⚪ Waiting for match
                 </p>
             </div>
             <span class="badge badge-present">Classroom 302</span>
@@ -207,7 +207,7 @@
             <div class="seat-card" id="seat-{{ s.student_id }}" onclick="openStudentDetailModal('{{ s.student_id }}')" style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--panel-border); border-radius: 8px; padding: 10px; text-align: center; cursor: pointer; transition: all 0.2s;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                     <span style="font-size: 10px; color: var(--text-muted);">Seat #{{ loop.index }}</span>
-                    <span id="seat-dot-{{ s.student_id }}" style="width: 10px; height: 10px; border-radius: 50%; background: #f87171; display: inline-block;"></span>
+                    <span id="seat-dot-{{ s.student_id }}" style="width: 10px; height: 10px; border-radius: 50%; background: #94a3b8; display: inline-block;"></span>
                 </div>
                 <strong style="font-size: 12px; display: block; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ s.name }}</strong>
                 <span style="font-size: 10px; color: var(--text-muted);">{{ s.student_id }}</span>
@@ -302,9 +302,20 @@
                     <input type="text" id="input-slot" class="form-control" placeholder="e.g. Slot 1 (Period 1)" required>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Class & Section *</label>
-                    <input type="text" id="input-class" class="form-control" placeholder="e.g. CSE III Year (Sec A)" required>
+                    <label class="form-label">Class *</label>
+                    <select id="input-class" class="form-control" required>
+                        <option value="">Select a registered class</option>
+                        {% for class_name in class_options %}<option value="{{ class_name }}">{{ class_name }}</option>{% endfor %}
+                    </select>
                 </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Section *</label>
+                <select id="input-section" class="form-control" required>
+                    <option value="">Select a registered section</option>
+                    {% for section in section_options %}<option value="{{ section }}">{{ section }}</option>{% endfor %}
+                </select>
             </div>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -339,8 +350,11 @@
         
         <div style="display: grid; grid-template-columns: 120px 1fr; gap: 16px; align-items: start; margin-top: 10px;">
             <div style="width: 120px; height: 140px; background: #000; border: 1px solid var(--panel-border); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative;">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--text-dim);"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                <div style="position: absolute; bottom: 0; left: 0; right: 0; background: rgba(15, 23, 42, 0.9); font-size: 10px; text-align: center; padding: 2px 0; color: #38bdf8;" id="modal-student-id">
+                <img id="modal-student-photo" alt="Consented frontal student profile photo" style="display: none; position: absolute; inset: 0 0 22px; width: 100%; height: calc(100% - 22px); object-fit: cover;">
+                <div id="modal-student-photo-placeholder" style="position: absolute; inset: 0 0 22px; display: flex; align-items: center; justify-content: center;">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--text-dim);"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                </div>
+                <div style="position: absolute; z-index: 2; bottom: 0; left: 0; right: 0; background: rgba(15, 23, 42, 0.9); font-size: 10px; text-align: center; padding: 2px 0; color: #38bdf8;" id="modal-student-id">
                     S101
                 </div>
             </div>
@@ -391,10 +405,30 @@
 
 {% block scripts %}
 <script>
-let currentMode = 'simulation';
+let currentMode = {{ camera_mode|tojson }};
 let clientMediaStream = null;
 let clientProcessingInterval = null;
 let latestStudentsData = [];
+let liveSessionActive = false;
+let lastTimelineSessionId = null;
+const lastTimelineStudentStates = new Map();
+
+function studentAttendanceLabel(student) {
+    if (student.status === 'Present') return 'Present';
+    if (liveSessionActive && Number(student.verified_mins) > 0) return 'Presence Accumulating';
+    return student.status;
+}
+
+function appendTimelineEvent(message, color = '#94a3b8') {
+    const stream = document.getElementById('live-event-stream');
+    if (!stream) return;
+    const row = document.createElement('div');
+    row.style.color = color;
+    row.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+    stream.appendChild(row);
+    while (stream.children.length > 80) stream.removeChild(stream.firstChild);
+    stream.scrollTop = stream.scrollHeight;
+}
 
 function openStartModal() {
     document.getElementById('start-modal').style.display = 'flex';
@@ -411,8 +445,25 @@ function openStudentDetailModal(studentId) {
     document.getElementById('modal-student-name').innerText = student.name;
     document.getElementById('modal-student-id').innerText = student.student_id;
     document.getElementById('modal-student-dept-sec').innerText = `${student.department || 'CSE'} • ${student.section || 'Sec-A'}`;
-    document.getElementById('modal-student-att-status').innerText = student.status;
-    document.getElementById('modal-student-att-status').style.color = student.status === 'Present' ? '#34d399' : '#f87171';
+    const photo = document.getElementById('modal-student-photo');
+    const photoPlaceholder = document.getElementById('modal-student-photo-placeholder');
+    photo.style.display = 'none';
+    photoPlaceholder.style.display = 'flex';
+    photo.onload = () => {
+        photo.style.display = 'block';
+        photoPlaceholder.style.display = 'none';
+    };
+    photo.onerror = () => {
+        photo.removeAttribute('src');
+        photo.style.display = 'none';
+        photoPlaceholder.style.display = 'flex';
+    };
+    photo.src = `/api/students/${encodeURIComponent(studentId)}/thumbnail?v=${Date.now()}`;
+    const attendanceLabel = studentAttendanceLabel(student);
+    document.getElementById('modal-student-att-status').innerText = attendanceLabel;
+    document.getElementById('modal-student-att-status').style.color = attendanceLabel === 'Present'
+        ? '#137333'
+        : attendanceLabel === 'Presence Accumulating' ? '#b7791f' : '#f87171';
     
     document.getElementById('modal-student-presence-duration').innerText = `${student.verified_mins || 0} mins`;
     document.getElementById('modal-student-first-seen').innerText = student.first_seen || 'Not Sighted';
@@ -426,11 +477,13 @@ function openStudentDetailModal(studentId) {
 
 function closeStudentDetailModal() {
     document.getElementById('student-detail-modal').style.display = 'none';
+    document.getElementById('modal-student-photo').removeAttribute('src');
 }
 
 function handleStartSession(e) {
     e.preventDefault();
     const className = document.getElementById('input-class').value;
+    const section = document.getElementById('input-section').value;
     const subject = document.getElementById('input-subject').value;
     const slotNumber = document.getElementById('input-slot').value;
     const scheduleStart = document.getElementById('input-sched-start').value;
@@ -441,16 +494,19 @@ function handleStartSession(e) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             class_name: className,
+            section: section,
             subject: subject,
             slot_number: slotNumber,
-            schedule_start: scheduleStart,
-            schedule_end: scheduleEnd
+            scheduled_start: scheduleStart,
+            scheduled_end: scheduleEnd
         })
     })
     .then(r => r.json())
     .then(data => {
         if(data.success) {
             window.location.reload();
+        } else {
+            alert(data.error || 'Could not start the session.');
         }
     });
 }
@@ -467,8 +523,7 @@ function stopSession() {
     });
 }
 
-function changeCameraSource(mode) {
-    currentMode = mode;
+async function changeCameraSource(mode) {
     const simImg = document.getElementById('video-canvas-img');
     const procImg = document.getElementById('processed-client-img');
     const btnBar = document.getElementById('permission-btn-bar');
@@ -477,39 +532,63 @@ function changeCameraSource(mode) {
         simImg.style.display = 'none';
         btnBar.style.display = 'block';
         requestBrowserCameraPermission();
-    } else {
-        stopClientCamera();
-        procImg.style.display = 'none';
-        btnBar.style.display = 'none';
-        simImg.style.display = 'block';
-        simImg.src = '/video_feed?' + new Date().getTime();
+        return;
     }
 
-    fetch('/api/camera/mode', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: mode })
-    });
+    try {
+        const response = await fetch('/api/camera/mode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: mode })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.error || 'Could not change camera source.');
+    } catch (err) {
+        alert(err.message);
+        document.getElementById('camera-mode-select').value = currentMode;
+        return;
+    }
+
+    currentMode = mode;
+
+    stopClientCamera();
+    procImg.style.display = 'none';
+    btnBar.style.display = 'none';
+    simImg.style.display = 'block';
+    simImg.src = '/video_feed?' + new Date().getTime();
 }
 
-function requestBrowserCameraPermission() {
-    navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } })
-    .then(stream => {
+async function requestBrowserCameraPermission() {
+    let stream;
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+        const response = await fetch('/api/camera/mode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'browser' })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.error || 'Could not activate the browser camera.');
+
+        currentMode = 'browser';
+        document.getElementById('camera-mode-select').value = 'browser';
         clientMediaStream = stream;
         const video = document.getElementById('client-webcam-video');
         video.srcObject = stream;
         document.getElementById('permission-btn-bar').style.display = 'none';
-        
         startClientFrameProcessing();
-    })
-    .catch(err => {
-        alert("Browser Camera Access Denied or Error: " + err.message + "\nPlease click 'Allow' when browser asks for camera permission.");
-    });
+    } catch (err) {
+        if (stream) stream.getTracks().forEach(track => track.stop());
+        alert("Browser camera could not start: " + err.message);
+        document.getElementById('camera-mode-select').value = currentMode;
+        document.getElementById('video-canvas-img').style.display = 'block';
+        document.getElementById('permission-btn-bar').style.display = 'none';
+    }
 }
 
 function stopClientCamera() {
     if (clientProcessingInterval) {
-        clearInterval(clientProcessingInterval);
+        clearTimeout(clientProcessingInterval);
         clientProcessingInterval = null;
     }
     if (clientMediaStream) {
@@ -526,8 +605,12 @@ function startClientFrameProcessing() {
 
     procImg.style.display = 'block';
 
-    clientProcessingInterval = setInterval(() => {
-        if (!clientMediaStream || video.paused || video.ended) return;
+    const processNextFrame = async () => {
+        if (!clientMediaStream) return;
+        if (video.paused || video.ended || !video.videoWidth) {
+            clientProcessingInterval = setTimeout(processNextFrame, 250);
+            return;
+        }
 
         canvas.width = video.videoWidth || 640;
         canvas.height = video.videoHeight || 480;
@@ -535,19 +618,22 @@ function startClientFrameProcessing() {
 
         const frameB64 = canvas.toDataURL('image/jpeg', 0.85);
 
-        fetch('/api/process_client_frame', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ frame_b64: frameB64 })
-        })
-        .then(r => r.json())
-        .then(data => {
+        try {
+            const response = await fetch('/api/process_client_frame', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ frame_b64: frameB64 })
+            });
+            const data = await response.json();
             if (data.success && data.annotated_b64) {
                 procImg.src = data.annotated_b64;
             }
-        })
-        .catch(err => console.error("Frame processing error:", err));
-    }, 120);
+        } catch (err) {
+            console.error("Frame processing error:", err);
+        }
+        if (clientMediaStream) clientProcessingInterval = setTimeout(processNextFrame, 500);
+    };
+    processNextFrame();
 }
 
 function updateTelemetry() {
@@ -555,19 +641,43 @@ function updateTelemetry() {
     .then(r => r.json())
     .then(data => {
         document.getElementById('val-present').innerText = data.present_count;
-        document.getElementById('val-absent').innerText = `Absent: ${data.absent_count}`;
+        document.getElementById('val-absent').innerText = data.active_session
+            ? `Not yet qualified: ${data.absent_count}`
+            : `Absent: ${data.absent_count}`;
         document.getElementById('val-avg-attention').innerText = `${data.avg_attention.toFixed(1)}%`;
         document.getElementById('val-total-reg').innerText = data.total_registered;
 
         if (data.active_session) {
+            liveSessionActive = true;
+            if (lastTimelineSessionId !== data.active_session.session_id) {
+                appendTimelineEvent(`Session active: ${data.active_session.subject} — ${data.active_session.class_name} / ${data.active_session.section}.`);
+                lastTimelineSessionId = data.active_session.session_id;
+            }
             document.getElementById('val-session-id').innerText = data.active_session.subject;
-            document.getElementById('val-session-class').innerText = `${data.active_session.slot_number} (${data.active_session.schedule_start} - ${data.active_session.schedule_end})`;
+            document.getElementById('val-session-class').innerText = `${data.active_session.class_name} / ${data.active_session.section} · ${data.active_session.slot_number} (${data.active_session.scheduled_start} - ${data.active_session.scheduled_end})`;
         } else {
+            liveSessionActive = false;
+            if (lastTimelineSessionId) {
+                appendTimelineEvent('Session no longer active.');
+                lastTimelineSessionId = null;
+            }
             document.getElementById('val-session-id').innerText = "IDLE (No Active Class)";
             document.getElementById('val-session-class').innerText = "Click 'Start Monitoring Session' to enter details";
         }
 
         latestStudentsData = data.students || [];
+
+        latestStudentsData.forEach(s => {
+            const state = studentAttendanceLabel(s);
+            if (state !== lastTimelineStudentStates.get(s.student_id)) {
+                if (state === 'Presence Accumulating') {
+                    appendTimelineEvent(`${s.name} (${s.student_id}) identity confirmed; presence is accumulating (${s.verified_mins} min).`, '#fbbf24');
+                } else if (state === 'Present') {
+                    appendTimelineEvent(`${s.name} (${s.student_id}) qualified as Present (${s.verified_mins} min).`, '#34d399');
+                }
+                lastTimelineStudentStates.set(s.student_id, state);
+            }
+        });
 
         // Update Seating Visualizer Dots
         latestStudentsData.forEach(s => {
@@ -575,8 +685,10 @@ function updateTelemetry() {
             if (dot) {
                 if (s.status === 'Present') {
                     dot.style.backgroundColor = '#34d399';
-                } else if (s.status === 'Presence Accumulating') {
+                } else if (s.status === 'Presence Accumulating' || (data.active_session && s.verified_mins > 0 && s.status !== 'Present')) {
                     dot.style.backgroundColor = '#fbbf24';
+                } else if (s.status === 'Waiting for Match') {
+                    dot.style.backgroundColor = '#94a3b8';
                 } else {
                     dot.style.backgroundColor = '#f87171';
                 }
@@ -589,8 +701,10 @@ function updateTelemetry() {
                 let attBadge = `<span class="badge badge-absent">Absent</span>`;
                 if (s.status === 'Present') {
                     attBadge = `<span class="badge badge-present">Present (${s.verified_mins || 0}m)</span>`;
-                } else if (s.status === 'Presence Accumulating') {
+                } else if (s.status === 'Presence Accumulating' || (data.active_session && s.verified_mins > 0 && s.status !== 'Present')) {
                     attBadge = `<span class="badge" style="background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3);">Verifying (${s.verified_mins || 0}m)</span>`;
+                } else if (s.status === 'Waiting for Match') {
+                    attBadge = `<span class="badge" style="background: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid rgba(148, 163, 184, 0.3);">Waiting for match</span>`;
                 }
                 
                 const attentionClass = s.attention_state === 'Attentive' ? 'badge-attentive' : 'badge-inattentive';
@@ -640,7 +754,7 @@ function updateTelemetry() {
             unknownBody.innerHTML = `
                 <tr>
                     <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 18px; font-size: 12px;">
-                        ✓ No unregistered visitors or ambiguous tracks currently detected. All active tracks correspond to enrolled classroom students.
+                        ✓ No unregistered visitors or ambiguous tracks currently detected.
                     </td>
                 </tr>
             `;
@@ -653,6 +767,13 @@ function clearEventLogUI() {
     const el = document.getElementById('live-event-stream');
     if (el) el.innerHTML = `<div style="color: #38bdf8;">[TIMELINE_RESET] Log stream cleared by user.</div>`;
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    if (currentMode === 'browser') {
+        document.getElementById('video-canvas-img').style.display = 'none';
+        requestBrowserCameraPermission();
+    }
+});
 
 setInterval(updateTelemetry, 1500);
 updateTelemetry();

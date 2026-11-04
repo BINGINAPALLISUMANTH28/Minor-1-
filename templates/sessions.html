@@ -29,11 +29,11 @@
                 {% for s in sessions %}
                 <tr>
                     <td><strong>{{ s.session_id }}</strong></td>
-                    <td>{{ s.class_name }}</td>
+                    <td>{{ s.class_name }} / {{ s.section }}</td>
                     <td>{{ s.subject }}</td>
                     <td>{{ s.date }}</td>
-                    <td>{{ s.start_time }}</td>
-                    <td>{{ s.end_time or 'In Progress' }}</td>
+                    <td>{{ s.actual_start or '—' }}</td>
+                    <td>{{ s.actual_end or 'In Progress' }}</td>
                     <td>
                         {% if s.status == 'ACTIVE' %}
                             <span class="badge badge-present">ACTIVE</span>

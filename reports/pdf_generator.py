@@ -120,7 +120,7 @@ def generate_faculty_report_pdf(session_info, student_summary_list, output_path)
         ],
         [
             Paragraph("Slot Number:", meta_label_style), Paragraph(str(session_info.get('slot_number', 'Slot 1')), meta_val_style),
-            Paragraph("Dept & Section:", meta_label_style), Paragraph(f"{session_info.get('department', 'CSE')} • {session_info.get('class_name', 'Sec A')}", meta_val_style)
+            Paragraph("Dept & Class / Section:", meta_label_style), Paragraph(f"{session_info.get('department', 'CSE')} • {session_info.get('class_name', 'CSE')} / {session_info.get('section', 'Sec-A')}", meta_val_style)
         ],
         [
             Paragraph("Scheduled Time:", meta_label_style), Paragraph(sched_str, meta_val_style),

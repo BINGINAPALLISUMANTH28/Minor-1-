@@ -10,14 +10,17 @@ from vision.tracker import BiometricFaceTracker
 from database import get_connection
 
 class CameraManager:
-    def __init__(self, mode='simulation'):
+    def __init__(self, mode='simulation', recognizer=None):
         self.mode = mode
         self.cap = None
         self.camera_index = 0
         self.detector = FaceDetector()
-        self.recognizer = FaceRecognizer()
+        self.recognizer = recognizer or FaceRecognizer()
         self.cue_analyzer = ObservableCueAnalyzer()
         self.tracker = BiometricFaceTracker(alpha=0.20, iou_threshold=0.35)
+        # Browser-camera frames and the server video stream are independent
+        # sources; keeping separate trackers prevents interleaved frame IDs.
+        self.client_tracker = BiometricFaceTracker(alpha=0.20, iou_threshold=0.35)
         self.is_black_frame = False
         
         self.student_name_map = {}
@@ -27,13 +30,20 @@ class CameraManager:
     def set_mode(self, new_mode):
         if self.mode != new_mode:
             self.mode = new_mode
+            self.reset_trackers()
             self._init_camera()
         return self.mode
+
+    def reset_trackers(self):
+        self.tracker.tracks.clear()
+        self.tracker.next_track_id = 1
+        self.client_tracker.tracks.clear()
+        self.client_tracker.next_track_id = 1
 
     def refresh_student_map(self):
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT student_id, name, department, section, class_name FROM students")
+        cursor.execute("SELECT student_id, name, department, section, class_name FROM students WHERE status = 'ACTIVE'")
         rows = cursor.fetchall()
         self.student_name_map = {}
         for r in rows:
@@ -83,6 +93,13 @@ class CameraManager:
         accumulates in-slot presence duration, and returns annotated frame + stats.
         """
         self.refresh_student_map()
+
+        # In browser mode the browser-frame endpoint is the sole source of
+        # detections. The hidden MJPEG element must not process synthetic frames.
+        if self.mode == 'browser':
+            frame = self._generate_blank_or_warning_frame("Browser camera is active")
+            self.is_black_frame = False
+            return frame, []
         
         if self.mode == 'webcam':
             if self.cap is not None and self.cap.isOpened():
@@ -137,7 +154,7 @@ class CameraManager:
             cue_label = cue_info['cue_label']
 
             # Record observation & accumulate presence duration in SQLite if session is ACTIVE
-            if session_id:
+            if session_id and self.mode != 'simulation' and student_id and match_status == 'CONFIRMED':
                 self._record_observation_and_presence(session_id, track_id, student_id, confidence, cue)
 
             # Render Bounding Box Overlay
@@ -184,8 +201,8 @@ class CameraManager:
         """Records raw observation log and accumulates verified in-slot presence duration for confirmed students."""
         conn = get_connection()
         cursor = conn.cursor()
-        now_str = time.strftime('%Y-%m-%d %H:%M:%S')
         now_time_only = time.strftime('%H:%M:%S')
+        now_epoch = time.time()
 
         # 1. Log observation event
         cursor.execute('''
@@ -196,26 +213,24 @@ class CameraManager:
         # 2. Accumulate presence duration for confirmed student in session roster
         if student_id:
             cursor.execute('''
-                SELECT verified_duration_secs, first_seen FROM attendance
+            SELECT verified_duration_secs, first_seen, last_observation_epoch FROM attendance
                 WHERE session_id = ? AND student_id = ?
             ''', (session_id, student_id))
             row = cursor.fetchone()
 
             if row:
-                new_duration = row['verified_duration_secs'] + 2 # ~2 seconds per sample log
+                previous_epoch = row['last_observation_epoch']
+                elapsed = 0.0 if previous_epoch is None else min(max(now_epoch - previous_epoch, 0.0), 2.0)
+                new_duration = float(row['verified_duration_secs'] or 0) + elapsed
                 first_seen = row['first_seen'] or now_time_only
                 
                 # Update qualification status if min duration (e.g. 15 mins = 900s or 1 min for prototype test) is met
                 cursor.execute('''
                     UPDATE attendance
-                    SET verified_duration_secs = ?, last_seen = ?, updated_at = CURRENT_TIMESTAMP
+                    SET verified_duration_secs = ?, first_seen = ?, last_seen = ?,
+                        last_observation_epoch = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE session_id = ? AND student_id = ?
-                ''', (new_duration, now_time_only, session_id, student_id))
-            else:
-                cursor.execute('''
-                    INSERT OR REPLACE INTO attendance (session_id, student_id, verified_duration_secs, first_seen, last_seen, status)
-                    VALUES (?, ?, 2, ?, ?, 'Presence Accumulating')
-                ''', (session_id, student_id, now_time_only, now_time_only))
+                ''', (new_duration, first_seen, now_time_only, now_epoch, session_id, student_id))
 
         conn.commit()
         conn.close()

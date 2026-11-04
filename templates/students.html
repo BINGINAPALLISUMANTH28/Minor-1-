@@ -37,13 +37,17 @@
                     <td>{{ s.department or 'CSE' }}</td>
                     <td><span class="badge" style="background-color: var(--card-bg); color: var(--text-main); border: 1px solid var(--panel-border);">{{ s.section or 'Sec-A' }} • {{ s.class_name }}</span></td>
                     <td>
-                        <span class="badge badge-present">Multi-Sample Templates Enrolled</span>
+                        {% if s.template_count > 0 %}
+                            <span class="badge badge-present">{{ s.template_count }} face templates</span>
+                        {% else %}
+                            <span class="badge badge-absent">Face enrollment required</span>
+                        {% endif %}
                     </td>
                     <td><span class="badge badge-present">{{ s.consent_status or 'GRANTED' }}</span></td>
                     <td>{{ s.created_at[:10] if s.created_at else '2026-09-28' }}</td>
                     <td>
                         <button class="btn btn-danger" style="padding: 2px 8px; font-size: 11px;" onclick="deleteStudent('{{ s.student_id }}', '{{ s.name }}')">
-                            Delete Profile
+                            Archive Profile
                         </button>
                     </td>
                 </tr>
@@ -88,8 +92,12 @@
                     <input type="text" id="reg-dept" class="form-control" value="Computer Science & Engineering" required>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Section & Class *</label>
-                    <input type="text" id="reg-sec" class="form-control" value="Sec-A (CSE III Year)" required>
+                    <label class="form-label">Section *</label>
+                    <input type="text" id="reg-sec" class="form-control" value="Sec-A" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Class *</label>
+                    <input type="text" id="reg-class" class="form-control" value="CSE - III Year" required>
                 </div>
             </div>
 
@@ -162,8 +170,8 @@
 
             <div class="form-group" style="margin-top: 12px; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 4px; border: 1px solid var(--panel-border);">
                 <label style="font-size: 12px; display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-muted);">
-                    <input type="checkbox" id="reg-consent" checked required>
-                    <span>Student Biometric Data Consent Granted (Required for Automated Biometric Attendance)</span>
+                    <input type="checkbox" id="reg-consent" required>
+                    <span>Student consent granted for face templates and a frontal profile thumbnail (required)</span>
                 </label>
             </div>
 
@@ -278,7 +286,8 @@ function captureSample(sampleIndex) {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     const imgB64 = canvas.toDataURL('image/jpeg', 0.9);
-    capturedSamples.push(imgB64);
+    capturedSamples[sampleIndex - 1] = imgB64;
+    const capturedCount = capturedSamples.filter(Boolean).length;
 
     const btn = document.getElementById(`btn-sample-${sampleIndex}`);
     btn.style.backgroundColor = 'var(--status-present-bg)';
@@ -286,7 +295,7 @@ function captureSample(sampleIndex) {
     btn.innerText = `✓ Sample ${sampleIndex} Captured`;
 
     const statusDiv = document.getElementById('biometric-samples-status');
-    statusDiv.innerHTML = `✓ ${capturedSamples.length} / 3 Quality-Validated Samples Captured`;
+    statusDiv.innerHTML = `✓ ${capturedCount} / 3 Face Samples Captured (Sample 1 is the frontal thumbnail)`;
     statusDiv.style.display = 'block';
 }
 
@@ -363,9 +372,16 @@ function handleBiometricRegister(e) {
     const name = document.getElementById('reg-name').value;
     const department = document.getElementById('reg-dept').value;
     const section = document.getElementById('reg-sec').value;
+    const class_name = document.getElementById('reg-class').value;
 
-    if (capturedSamples.length === 0) {
-        alert("Please capture face biometric samples before saving profile.");
+    const consentGranted = document.getElementById('reg-consent').checked;
+    if (!consentGranted) {
+        alert("Student consent is required to save face templates and the frontal profile thumbnail.");
+        return;
+    }
+
+    if (capturedSamples.filter(Boolean).length < 3 || !capturedSamples[0]) {
+        alert("Capture all three samples in order. Sample 1 must be the frontal face view used for the profile thumbnail.");
         return;
     }
 
@@ -381,8 +397,10 @@ function handleBiometricRegister(e) {
             name: name,
             department: department,
             section: section,
-            class_name: section,
-            face_samples: capturedSamples
+            class_name: class_name,
+            face_samples: capturedSamples,
+            frontal_sample: capturedSamples[0],
+            consent_granted: consentGranted
         })
     })
     .then(r => r.json())
@@ -404,7 +422,7 @@ function handleBiometricRegister(e) {
 }
 
 function deleteStudent(studentId, name) {
-    if (!confirm(`Are you sure you want to delete student profile for ${name} (${studentId}) and remove all associated biometric encodings?`)) {
+    if (!confirm(`Archive ${name} (${studentId}) and remove their biometric templates? Historical attendance reports will be retained.`)) {
         return;
     }
 
@@ -416,7 +434,7 @@ function deleteStudent(studentId, name) {
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            alert(`Student ${name} (${studentId}) deleted successfully.`);
+            alert(`Student ${name} (${studentId}) archived successfully.`);
             window.location.reload();
         } else {
             alert(data.error || "Failed to delete student.");

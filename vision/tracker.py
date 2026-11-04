@@ -93,10 +93,16 @@ class BiometricFaceTracker:
 
             # Identity Multi-Observation Confirmation Buffer
             # Revalidate if crossing tracks occurred or identity not yet confirmed
-            needs_revalidation = is_crossing_event or (track_data['confirmation_count'] < 3)
+            track_data['identity_check_frames'] = track_data.get('identity_check_frames', 0) + 1
+            needs_revalidation = (
+                is_crossing_event
+                or track_data['confirmation_count'] < 3
+                or track_data['identity_check_frames'] >= 10
+            )
             
             if recognizer_func and needs_revalidation:
-                st_id, conf, match_status = recognizer_func(det['roi_bgr'])
+                track_data['identity_check_frames'] = 0
+                st_id, conf, match_status = recognizer_func(det)
                 
                 if match_status == 'CONFIRMED' and st_id:
                     if track_data['candidate_id'] == st_id:
@@ -104,6 +110,8 @@ class BiometricFaceTracker:
                     else:
                         track_data['candidate_id'] = st_id
                         track_data['confirmation_count'] = 1
+                        track_data['student_id'] = None
+                        track_data['match_status'] = 'VERIFYING'
                     
                     track_data['identity_confidence'] = conf
 
@@ -114,6 +122,7 @@ class BiometricFaceTracker:
                 elif match_status == 'AMBIGUOUS':
                     track_data['match_status'] = 'AMBIGUOUS'
                     track_data['confirmation_count'] = max(0, track_data['confirmation_count'] - 1)
+                    track_data['student_id'] = None
                 else:
                     # Unknown / Unregistered
                     track_data['candidate_id'] = None
@@ -131,7 +140,7 @@ class BiometricFaceTracker:
             match_status = "UNKNOWN"
 
             if recognizer_func:
-                st_id, conf, match_status = recognizer_func(det['roi_bgr'])
+                st_id, conf, match_status = recognizer_func(det)
 
             track_id = self.next_track_id
             self.next_track_id += 1
@@ -147,6 +156,7 @@ class BiometricFaceTracker:
                 'identity_confidence': conf,
                 'match_status': match_status,
                 'confirmation_count': 1 if match_status == 'CONFIRMED' else 0,
+                'identity_check_frames': 0,
                 'missing_count': 0
             }
 

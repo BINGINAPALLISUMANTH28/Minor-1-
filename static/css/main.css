@@ -530,8 +530,11 @@ table.data-table tr:last-child td {
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   z-index: 1000;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
+  padding: 24px 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .modal-card {
@@ -541,7 +544,24 @@ table.data-table tr:last-child td {
   width: 100%;
   max-width: 540px;
   padding: 32px;
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  flex: 0 0 auto;
   box-shadow: 0 20px 25px -5px rgba(70, 50, 30, 0.15), 0 8px 10px -6px rgba(70, 50, 30, 0.1);
+}
+
+@media (max-width: 600px) {
+  .modal-overlay {
+    padding: 12px;
+  }
+
+  .modal-card {
+    padding: 20px;
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+  }
 }
 
 .modal-header {

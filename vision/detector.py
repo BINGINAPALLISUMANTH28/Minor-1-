@@ -103,6 +103,8 @@ class FaceDetector:
                     detected_faces.append({
                         'bbox': (x1, y1, w_box, h_box),
                         'landmarks': landmarks,
+                        'frame_bgr': frame,
+                        'face_vector': face.copy(),
                         'roi_bgr': roi_bgr,
                         'roi_gray': roi_gray
                     })

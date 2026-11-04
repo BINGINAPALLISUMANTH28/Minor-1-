@@ -58,12 +58,15 @@ An enterprise-grade, real-time AI solution for multi-person face detection, stud
    - Supports 3–5 students simultaneously in real-time camera view.
 
 3. **Face Recognition (`FR-03`)**:
-   - Extracts spatial HOG, LBP, and intensity histograms.
-   - Computes cosine distance similarity against registered student embeddings.
+   - Aligns detected faces with YuNet's five landmarks and creates normalized 128-value OpenCV SFace embeddings.
+   - Compares embeddings by cosine similarity; older HOG templates are retained in the database but are not used for SFace matching.
+   - Requires at least three quality-checked face samples for enrollment. Existing students must enroll again after upgrading to SFace.
+   - With student consent, stores a small frontal thumbnail separately for the profile card; the thumbnail is not used for recognition.
 
 4. **Automatic Attendance (`FR-04`)**:
-   - Marks recognized students as **Present** once per active monitoring session.
-   - Prevents duplicate counting and maintains accurate presence logs.
+   - Accumulates presence time only for confirmed identities on the session's class-and-section roster.
+   - Qualifies attendance against the configured minimum duration when the session ends.
+   - Prototype/simulation frames cannot start an attendance session.
 
 5. **Individual Attention Monitoring (`FR-05`)**:
    - Computes dynamic head pose geometry (Yaw, Pitch, Roll) and 5 facial landmark positions.
@@ -96,21 +99,19 @@ An enterprise-grade, real-time AI solution for multi-person face detection, stud
    python -m pip install opencv-python numpy pillow flask reportlab
    ```
 
-2. Seed the database with initial prototype student encodings:
+2. Add optional sample student profiles (this does not create fake face templates):
    ```bash
    python seed_db.py
    ```
+   Then sign in as an administrator, open **Student Directory**, and enroll each real student with their camera samples.
 
-3. Run system verification tests:
-   ```bash
-   python test_app.py
-   ```
-
-4. Launch the application server:
+3. Launch the application server:
    ```bash
    python app.py
    ```
    Navigate to `http://localhost:5000` in your web browser.
+
+On first initialization, the server prints one-time randomly generated `admin` and `faculty` passwords. Set `ADMIN_INITIAL_PASSWORD` and `FACULTY_INITIAL_PASSWORD` before first startup to choose them yourself. Legacy prototype passwords are replaced and the new credentials are printed once. Set `FLASK_SECRET_KEY` to a long random value for deployments; otherwise the app stores a generated key in its local SQLite configuration table.
 
 ---
 

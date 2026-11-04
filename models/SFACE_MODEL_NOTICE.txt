@@ -1,0 +1,7 @@
+Model: face_recognition_sface_2021dec.onnx
+Source: https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface
+License: Apache-2.0 (see the model directory's LICENSE file at the source link).
+
+The application requires the OpenCV FaceRecognizerSF API and this ONNX file.
+Legacy handcrafted-feature templates are retained in the database as archived
+rows but are ignored; enroll students again to create SFace templates.

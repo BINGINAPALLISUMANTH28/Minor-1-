@@ -794,7 +794,7 @@ def process_classroom_frame(frame, current_session):
     \begin{center}
     \texttt{http://localhost:5000}
     \end{center}
-    \item Log in using the faculty account (\texttt{faculty / faculty123}) to view the live dashboard and start a monitoring session.
+    \item Sign in using the one-time faculty credentials printed by the server on initial database setup, then open the live dashboard and start a monitoring session.
 \end{itemize}
 
 % =============================================================
@@ -1169,7 +1169,7 @@ from vision.recognizer import FaceRecognizer
 from reports.pdf_generator import generate_faculty_report_pdf
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'smart_classroom_secret_key_2026'
+app.config['SECRET_KEY'] = load_secret_key()
 
 init_db()
 camera_manager = CameraManager(mode='browser')
