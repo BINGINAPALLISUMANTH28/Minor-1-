@@ -121,10 +121,11 @@
                 </div>
             </div>
             
-            <img src="{{ url_for('video_feed') }}" alt="Real-Time Classroom Camera Feed" class="video-stream" id="video-canvas-img">
+            <img {% if camera_mode == 'simulation' %}src="{{ url_for('video_feed') }}"{% endif %} alt="Real-Time Classroom Camera Feed" class="video-stream" id="video-canvas-img">
 
             <video id="client-webcam-video" autoplay playsinline muted style="display: none; width: 100%; height: 100%; object-fit: cover;"></video>
             <canvas id="client-webcam-canvas" style="display: none;"></canvas>
+            <canvas id="client-detection-overlay" style="display: none; position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; z-index: 1;"></canvas>
             <img id="processed-client-img" class="video-stream" style="display: none;">
         </div>
 
@@ -419,6 +420,16 @@ function studentAttendanceLabel(student) {
     return student.status;
 }
 
+function hasLiveAttentionEstimate(student, sessionActive = liveSessionActive) {
+    if (student.attention_available === true) return true;
+    // Keep the current no-reload server usable until its active session ends.
+    return student.attention_available === undefined
+        && sessionActive
+        && student.observable_cue
+        && student.observable_cue !== 'NOT_DETECTED'
+        && student.attention_state !== 'N/A';
+}
+
 function appendTimelineEvent(message, color = '#94a3b8') {
     const stream = document.getElementById('live-event-stream');
     if (!stream) return;
@@ -470,7 +481,9 @@ function openStudentDetailModal(studentId) {
     document.getElementById('modal-student-qualification').innerText = student.qualification_result || 'PENDING';
     
     document.getElementById('modal-student-cue').innerText = student.cue_label || 'Frontal Orient (Attentive)';
-    document.getElementById('modal-student-score').innerText = student.status === 'Present' ? `${student.attention_score || 88}%` : '--';
+    document.getElementById('modal-student-score').innerText = hasLiveAttentionEstimate(student)
+        ? `${Number(student.attention_score).toFixed(0)}%`
+        : '--';
 
     document.getElementById('student-detail-modal').style.display = 'flex';
 }
@@ -529,6 +542,8 @@ async function changeCameraSource(mode) {
     const btnBar = document.getElementById('permission-btn-bar');
 
     if (mode === 'browser') {
+        // Stop the hidden MJPEG prototype stream so it does not compete with live recognition.
+        simImg.removeAttribute('src');
         simImg.style.display = 'none';
         btnBar.style.display = 'block';
         requestBrowserCameraPermission();
@@ -575,12 +590,18 @@ async function requestBrowserCameraPermission() {
         clientMediaStream = stream;
         const video = document.getElementById('client-webcam-video');
         video.srcObject = stream;
+        video.style.display = 'block';
+        document.getElementById('processed-client-img').style.display = 'none';
+        document.getElementById('client-detection-overlay').style.display = 'block';
+        video.play().catch(() => {});
         document.getElementById('permission-btn-bar').style.display = 'none';
         startClientFrameProcessing();
     } catch (err) {
         if (stream) stream.getTracks().forEach(track => track.stop());
         alert("Browser camera could not start: " + err.message);
         document.getElementById('camera-mode-select').value = currentMode;
+        document.getElementById('client-webcam-video').style.display = 'none';
+        document.getElementById('client-detection-overlay').style.display = 'none';
         document.getElementById('video-canvas-img').style.display = 'block';
         document.getElementById('permission-btn-bar').style.display = 'none';
     }
@@ -595,15 +616,55 @@ function stopClientCamera() {
         clientMediaStream.getTracks().forEach(t => t.stop());
         clientMediaStream = null;
     }
+    const video = document.getElementById('client-webcam-video');
+    const overlay = document.getElementById('client-detection-overlay');
+    if (video) {
+        video.pause();
+        video.srcObject = null;
+        video.style.display = 'none';
+    }
+    if (overlay) {
+        overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
+        overlay.style.display = 'none';
+    }
 }
 
 function startClientFrameProcessing() {
     const video = document.getElementById('client-webcam-video');
     const canvas = document.getElementById('client-webcam-canvas');
-    const procImg = document.getElementById('processed-client-img');
+    const overlay = document.getElementById('client-detection-overlay');
+    const overlayCtx = overlay.getContext('2d');
     const ctx = canvas.getContext('2d');
 
-    procImg.style.display = 'block';
+    function drawDetectionOverlay(stats, frameWidth, frameHeight) {
+        const videoWidth = video.videoWidth || frameWidth;
+        const videoHeight = video.videoHeight || frameHeight;
+        if (overlay.width !== videoWidth || overlay.height !== videoHeight) {
+            overlay.width = videoWidth;
+            overlay.height = videoHeight;
+        }
+        overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+        overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+        overlayCtx.scale(videoWidth / frameWidth, videoHeight / frameHeight);
+        overlayCtx.lineWidth = Math.max(2, frameWidth / 480);
+        overlayCtx.font = `600 ${Math.max(14, frameWidth / 45)}px sans-serif`;
+
+        for (const face of stats) {
+            if (!Array.isArray(face.bbox) || face.bbox.length !== 4) continue;
+            const [x, y, width, height] = face.bbox;
+            const color = face.match_status === 'CONFIRMED' ? '#34d399'
+                : face.match_status === 'AMBIGUOUS' ? '#fbbf24' : '#94a3b8';
+            const label = `${face.name} | ${face.cue_label}`;
+            overlayCtx.strokeStyle = color;
+            overlayCtx.strokeRect(x, y, width, height);
+            const labelY = Math.max(22, y - 8);
+            const labelWidth = overlayCtx.measureText(label).width + 12;
+            overlayCtx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+            overlayCtx.fillRect(x, labelY - 21, labelWidth, 24);
+            overlayCtx.fillStyle = '#f8fafc';
+            overlayCtx.fillText(label, x + 6, labelY - 4);
+        }
+    }
 
     const processNextFrame = async () => {
         if (!clientMediaStream) return;
@@ -612,11 +673,14 @@ function startClientFrameProcessing() {
             return;
         }
 
-        canvas.width = video.videoWidth || 640;
-        canvas.height = video.videoHeight || 480;
+        const sourceWidth = video.videoWidth || 640;
+        const sourceHeight = video.videoHeight || 480;
+        const scale = Math.min(1, 960 / sourceWidth, 540 / sourceHeight);
+        canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+        canvas.height = Math.max(1, Math.round(sourceHeight * scale));
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-        const frameB64 = canvas.toDataURL('image/jpeg', 0.85);
+        const frameB64 = canvas.toDataURL('image/jpeg', 0.78);
 
         try {
             const response = await fetch('/api/process_client_frame', {
@@ -625,8 +689,8 @@ function startClientFrameProcessing() {
                 body: JSON.stringify({ frame_b64: frameB64 })
             });
             const data = await response.json();
-            if (data.success && data.annotated_b64) {
-                procImg.src = data.annotated_b64;
+            if (data.success) {
+                drawDetectionOverlay(data.frame_stats || [], data.frame_width || canvas.width, data.frame_height || canvas.height);
             }
         } catch (err) {
             console.error("Frame processing error:", err);
@@ -644,7 +708,13 @@ function updateTelemetry() {
         document.getElementById('val-absent').innerText = data.active_session
             ? `Not yet qualified: ${data.absent_count}`
             : `Absent: ${data.absent_count}`;
-        document.getElementById('val-avg-attention').innerText = `${data.avg_attention.toFixed(1)}%`;
+        const liveScores = (data.students || [])
+            .filter(s => hasLiveAttentionEstimate(s, Boolean(data.active_session)))
+            .map(s => Number(s.attention_score) || 0);
+        const visibleAverage = liveScores.length
+            ? liveScores.reduce((sum, score) => sum + score, 0) / liveScores.length
+            : data.avg_attention;
+        document.getElementById('val-avg-attention').innerText = `${Number(visibleAverage).toFixed(1)}%`;
         document.getElementById('val-total-reg').innerText = data.total_registered;
 
         if (data.active_session) {
@@ -708,7 +778,9 @@ function updateTelemetry() {
                 }
                 
                 const attentionClass = s.attention_state === 'Attentive' ? 'badge-attentive' : 'badge-inattentive';
-                const scoreDisplay = s.status === 'Present' ? `${s.attention_score.toFixed(0)}%` : '--';
+                const scoreDisplay = hasLiveAttentionEstimate(s)
+                    ? `${Number(s.attention_score).toFixed(0)}%`
+                    : '--';
                 const deptSec = `<small>${s.department || 'CSE'} • ${s.section || 'Sec-A'}</small>`;
 
                 return `
@@ -771,6 +843,7 @@ function clearEventLogUI() {
 document.addEventListener('DOMContentLoaded', () => {
     if (currentMode === 'browser') {
         document.getElementById('video-canvas-img').style.display = 'none';
+        document.getElementById('video-canvas-img').removeAttribute('src');
         requestBrowserCameraPermission();
     }
 });

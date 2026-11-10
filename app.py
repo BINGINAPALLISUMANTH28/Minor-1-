@@ -239,40 +239,21 @@ def process_client_frame():
         if session_id and student_id and match_status == 'CONFIRMED':
             camera_manager._record_observation_and_presence(session_id, track_id, student_id, confidence, cue)
 
-        if student_id and match_status == 'CONFIRMED':
-            box_color = (80, 190, 90) if cue_info['oriented_forward'] else (60, 180, 220)
-        elif match_status == 'AMBIGUOUS':
-            box_color = (40, 150, 230)
-        else:
-            box_color = (120, 130, 145)
-
-        cv2.rectangle(frame, (x, y), (x + fw, y + fh), box_color, 2)
-
-        if landmarks:
-            for k, pos in landmarks.items():
-                if k != 'score':
-                    px, py = int(pos[0]), int(pos[1])
-                    cv2.circle(frame, (px, py), 3, (220, 230, 242), -1)
-
-        label = f"{student_name} | {cue_label}"
-        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
-        cv2.rectangle(frame, (x, y - 22), (x + max(fw, tw + 10), y), (15, 23, 42), -1)
-        cv2.putText(frame, label, (x + 4, y - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (240, 240, 240), 1, cv2.LINE_AA)
-
         frame_stats.append({
             'track_id': track_id,
             'student_id': student_id if student_id else 'UNREGISTERED',
             'name': student_name,
+            'bbox': [int(x), int(y), int(fw), int(fh)],
+            'match_status': match_status,
             'observable_cue': cue,
             'cue_label': cue_label,
             'confidence': confidence
         })
 
-    annotated_b64 = cv2_to_base64(frame)
-
     return jsonify({
         'success': True,
-        'annotated_b64': annotated_b64,
+        'frame_width': int(w),
+        'frame_height': int(h),
         'detected_count': len(tracked_faces),
         'frame_stats': frame_stats
     })
@@ -351,7 +332,7 @@ def live_status():
             } for s in all_students]
         })
 
-    cursor.execute("SELECT student_id, verified_duration_secs, first_seen, status, qualification_result FROM attendance WHERE session_id = ?", (session_id,))
+    cursor.execute("SELECT student_id, verified_duration_secs, first_seen, status, qualification_result, last_observation_epoch FROM attendance WHERE session_id = ?", (session_id,))
     attendance_records = {r['student_id']: dict(r) for r in cursor.fetchall()}
 
     # Get recent observable cues per student from observations table
@@ -371,6 +352,7 @@ def live_status():
     present_count = 0
     total_attention_sum = 0.0
     students_with_attention = 0
+    now_epoch = time.time()
 
     for s in all_students:
         s_id = s['student_id']
@@ -390,22 +372,30 @@ def live_status():
         if status_str == 'Present':
             present_count += 1
 
-        obs_cue = latest_cue_map.get(s_id, 'FACE_VISIBLE_FORWARD' if dur_secs > 0 else 'NOT_DETECTED')
+        last_observation_epoch = att.get('last_observation_epoch')
+        attention_available = bool(
+            last_observation_epoch and 0 <= now_epoch - last_observation_epoch <= 5.0
+        )
+        obs_cue = latest_cue_map.get(s_id, 'NOT_DETECTED') if attention_available else 'NOT_DETECTED'
         
         if obs_cue == 'FACE_VISIBLE_FORWARD':
             cue_label = "Frontal Orient (Attentive)"
             attention_state = "Attentive"
-            attention_score = min(98.0, 85.0 + (dur_secs % 10))
-        elif obs_cue == 'ORIENTED_ELSEWHERE':
+            attention_score = 85.0
+        elif obs_cue in ('ORIENTED_ELSEWHERE', 'FACE_VISIBLE_ELSEWHERE'):
             cue_label = "Orientation Changed"
             attention_state = "Inattentive"
             attention_score = 55.0
-        else:
+        elif obs_cue == 'UNCERTAIN':
             cue_label = "Uncertain Pose"
             attention_state = "Inattentive"
             attention_score = 40.0
+        else:
+            cue_label = "Not Sighted"
+            attention_state = "N/A"
+            attention_score = 0.0
 
-        if status_str == 'Present':
+        if attention_available:
             total_attention_sum += attention_score
             students_with_attention += 1
 
@@ -422,7 +412,8 @@ def live_status():
             'observable_cue': obs_cue,
             'cue_label': cue_label,
             'attention_state': attention_state,
-            'attention_score': round(attention_score, 1)
+            'attention_score': round(attention_score, 1),
+            'attention_available': attention_available
         })
 
     absent_count = total_registered - present_count
